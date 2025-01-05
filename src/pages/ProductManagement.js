@@ -9,6 +9,7 @@ import {
   Row,
   Col,
   Select,
+  Upload,
 } from "antd";
 import axios from "axios";
 
@@ -22,6 +23,8 @@ const ProductManagement = () => {
   const [form] = Form.useForm();
   const [searchKeyword, setSearchKeyword] = useState("");
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [imageBase64, setImageBase64] = useState("");
+  const [imagePreview, setImagePreview] = useState("");
 
   useEffect(() => {
     fetchProducts();
@@ -53,18 +56,38 @@ const ProductManagement = () => {
   const handleAddProduct = () => {
     setEditingProduct(null);
     form.resetFields();
+    setImageBase64("");
+    setImagePreview("");
     setIsModalVisible(true);
   };
 
   const handleEditProduct = (product) => {
     setEditingProduct(product);
-    form.setFieldsValue(product);
+    form.setFieldsValue({
+      ...product,
+      image: product.image
+        ? [
+            {
+              uid: "-1", // Unique ID để Ant Design nhận diện file
+              name: "image.png", // Tên file (có thể đặt mặc định)
+              status: "done",
+              url: product.image, // Dùng chuỗi base64 để hiển thị
+            },
+          ]
+        : [], // Nếu không có ảnh, đặt là mảng rỗng
+    });
+
+    setImagePreview(product.image || ""); // Hiển thị hình ảnh nếu có
+    setImageBase64(product.image || ""); // Đặt base64 vào state
     setIsModalVisible(true);
   };
 
+
   const handleDeleteProduct = async (id) => {
     try {
-      await axios.delete(`http://localhost:3003/api/product/delete-product/${id}`);
+      await axios.delete(
+        `http://localhost:3003/api/product/delete-product/${id}`
+      );
       message.success("Product deleted successfully");
       fetchProducts();
     } catch (error) {
@@ -75,19 +98,25 @@ const ProductManagement = () => {
   const handleFormSubmit = async () => {
     try {
       const values = form.getFieldsValue();
+      const payload = {
+        ...values,
+        image: imageBase64, // Thêm hình ảnh dưới dạng base64
+      };
+
       if (editingProduct) {
         await axios.patch(
           `http://localhost:3003/api/product/update-product/${editingProduct._id}`,
-          values
+          payload
         );
         message.success("Product updated successfully");
       } else {
         await axios.post(
           "http://localhost:3003/api/product/add-product",
-          values
+          payload
         );
         message.success("Product added successfully");
       }
+
       setIsModalVisible(false);
       fetchProducts();
     } catch (error) {
@@ -110,11 +139,38 @@ const ProductManagement = () => {
     setSelectedCategory(value);
   };
 
+  const handleScan = async () => {
+    try {
+      const response = await axios.get("/scan");
+      console.log("response.data: ", response.data);
+
+      if (response.data) {
+        form.setFieldsValue({ barcode: response.data });
+        message.success("Barcode scanned successfully!");
+      } else {
+        message.error("No barcode data received!");
+      }
+    } catch (error) {
+      message.error("Error while scanning barcode");
+    }
+  };
+
   const filteredProducts = products.filter((product) => {
     return selectedCategory
       ? product.category && product.category._id === selectedCategory
       : true;
   });
+
+  const handleImageUpload = (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setImageBase64(e.target.result); // Lưu base64 vào state
+      setImagePreview(e.target.result); // Hiển thị preview
+    };
+    reader.readAsDataURL(file); // Chuyển file thành base64
+    return false; // Ngăn không cho Upload tự động gửi file
+  };
+
 
   const columns = [
     {
@@ -122,6 +178,21 @@ const ProductManagement = () => {
       dataIndex: "index",
       key: "index",
       render: (text, record, index) => index + 1,
+    },
+    {
+      title: "Hình Ảnh",
+      dataIndex: "image",
+      key: "image",
+      render: (text, record) =>
+        record.image ? (
+          <img
+            src={record.image}
+            alt={record.name}
+            style={{ width: "50px", height: "50px", objectFit: "cover" }}
+          />
+        ) : (
+          "N/A"
+        ), // Hiển thị "N/A" nếu không có hình ảnh
     },
     {
       title: "Tên Sản Phẩm",
@@ -232,7 +303,13 @@ const ProductManagement = () => {
             name="barcode"
             rules={[{ required: true, message: "Please input the barcode!" }]}
           >
-            <Input />
+            <Input
+              addonAfter={
+                <Button onClick={handleScan} type="primary">
+                  Scan
+                </Button>
+              }
+            />
           </Form.Item>
           <Form.Item
             label="Danh Mục"
@@ -246,6 +323,38 @@ const ProductManagement = () => {
                 </Option>
               ))}
             </Select>
+          </Form.Item>
+
+          <Form.Item
+            label="Hình Ảnh"
+            name="image"
+            valuePropName="fileList"
+            getValueFromEvent={(e) => {
+              if (Array.isArray(e)) {
+                return e;
+              }
+              return e && e.fileList;
+            }}
+          >
+            <Upload
+              accept="image/*"
+              listType="picture-card"
+              showUploadList={false}
+              beforeUpload={handleImageUpload}
+              onPreview={() => window.open(imagePreview)} // Mở hình ảnh trong tab mới khi xem trước
+            >
+              {imagePreview ? (
+                <img
+                  src={imagePreview}
+                  alt="uploaded"
+                  style={{ width: "100%" }}
+                />
+              ) : (
+                <div>
+                  <Button>Upload</Button>
+                </div>
+              )}
+            </Upload>
           </Form.Item>
         </Form>
       </Modal>

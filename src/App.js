@@ -24,6 +24,9 @@ import "./assets/styles/responsive.css";
 import Category from "./pages/Category";
 import EpcManagement from "./pages/EpcManagement";
 import ProductTracking from "./pages/ProductTracking";
+import EPCDisplay from "./pages/EPCDisplay";
+import ActivityLog from "./pages/ActivityLog";
+import Transaction from "./pages/Transaction";
 
 function App() {
   return (
@@ -35,6 +38,9 @@ function App() {
           <Route exact path="/category" component={Category} />
           <Route exact path="/epc-management" component={EpcManagement} />
           <Route exact path="/product-tracking" component={ProductTracking} />
+          <Route exact path="/product-display" component={EPCDisplay} />
+          <Route exact path="/activity-log" component={ActivityLog} />
+          <Route exact path="/transaction" component={Transaction} />
           <Route
             exact
             path="/product-management"

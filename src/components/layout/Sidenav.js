@@ -215,17 +215,43 @@ function Sidenav({ color }) {
             <span className="label">Product Tracking</span>
           </NavLink>
         </Menu.Item>
-        <Menu.Item key="5">
-          <NavLink to="/rtl">
+        <Menu.Item key="13">
+          <NavLink to="/product-display">
             <span
               className="icon"
               style={{
-                background: page === "rtl" ? color : "",
+                background: page === "product-display" ? color : "",
+              }}
+            >
+              {billing}
+            </span>
+            <span className="label">Product Display</span>
+          </NavLink>
+        </Menu.Item>
+        <Menu.Item key="5">
+          <NavLink to="/activity-log">
+            <span
+              className="icon"
+              style={{
+                background: page === "activity-log" ? color : "",
               }}
             >
               {rtl}
             </span>
             <span className="label">Activity Log</span>
+          </NavLink>
+        </Menu.Item>
+        <Menu.Item key="15">
+          <NavLink to="/transaction">
+            <span
+              className="icon"
+              style={{
+                background: page === "transaction" ? color : "",
+              }}
+            >
+              {rtl}
+            </span>
+            <span className="label">Transaction</span>
           </NavLink>
         </Menu.Item>
         <Menu.Item className="menu-item-header" key="5">

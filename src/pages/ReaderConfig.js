@@ -26,6 +26,12 @@ const ReaderConfig = () => {
   const [comPort, setComPort] = useState("COM21");
   const [baudRate, setBaudRate] = useState(15200);
 
+  // Danh sách COM Ports (COM1 đến COM25)
+  const comPorts = Array.from({ length: 25 }, (_, i) => `COM${i + 1}`);
+
+  // Danh sách Baudrate
+  const baudRates = [9600, 19200, 115200, 230400, 460800, 921600];
+
   const epcSpeedMap = {
     0: "Tari=25us,FM0,LF=40KHz",
     1: "Dense node",
@@ -235,6 +241,34 @@ const ReaderConfig = () => {
       >
         <Form layout="vertical">
           <Title level={5}>Connection Settings</Title>
+
+          <Row gutter={[16, 16]} align="middle">
+            <Col xs={24} sm={12}>
+              <Form.Item label="COM Port">
+                <Select value={comPort} onChange={(value) => setComPort(value)}>
+                  {comPorts.map((port) => (
+                    <Option key={port} value={port}>
+                      {port}
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item label="Baud Rate">
+                <Select
+                  value={baudRate}
+                  onChange={(value) => setBaudRate(value)}
+                >
+                  {baudRates.map((rate) => (
+                    <Option key={rate} value={rate}>
+                      {rate}
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
 
           <Row justify="start" style={{ marginBottom: 16 }}>
             <Col>

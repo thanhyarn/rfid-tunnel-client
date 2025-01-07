@@ -1,79 +1,69 @@
-import React, { useState, useEffect } from "react";
-import { Table, Tag, notification, Button, Row, Col, Select } from "antd";
-import SockJS from "sockjs-client";
+import React, { useState, useRef } from "react";
+import { Table, notification, Button, Row, Col, Input, Modal } from "antd";
 import axios from "axios";
-
-const { Option } = Select;
+import SockJS from "sockjs-client";
 
 const EPCDisplay = () => {
-  const [epcs, setEpcs] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [sock, setSock] = useState(null);
+  const socketRef = useRef(null); 
+  const [invoiceCode, setInvoiceCode] = useState(""); // Mã phiếu
+  const [invoiceData, setInvoiceData] = useState(null); // Thông tin phiếu
+  const [readData, setReadData] = useState([]); // Dữ liệu đọc được
   const [isReading, setIsReading] = useState(false); // Trạng thái đọc
+  const [comparisonResult, setComparisonResult] = useState({
+    matched: [],
+    extra: [],
+    missing: [],  
+  });
+  const [isModalVisible, setIsModalVisible] = useState(false);
 
-  // Lấy danh sách sản phẩm từ API
-  const fetchProducts = async () => {
+  const handleCheckInvoice = async () => {
     try {
       const response = await axios.get(
-        "http://localhost:3003/api/product/fetch-all"
+        `http://localhost:3003/api/transaction/code/${invoiceCode}`
       );
-      console.log("response.data: ", response.data);
-
-      setProducts(response.data);
+      setInvoiceData(response.data);
+      notification.success({
+        message: "Thông tin phiếu đã được tải thành công",
+      });
     } catch (error) {
+      setInvoiceData(null);
       notification.error({
-        message: "Lỗi khi tải danh sách sản phẩm",
-        description: error.message,
+        message: "Không tìm thấy thông tin phiếu",
+        description: error.response?.data?.message || error.message,
       });
     }
   };
 
-  useEffect(() => {
-    fetchProducts();
-  }, []);
+  const handleStartReading = async () => {
+    try {
+      // Dừng đọc trước đó nếu cần
+      await axios.post("http://localhost:8386/api/nation-rfid/stop");
 
-  // Hàm xử lý khi nhận EPC mới
-  const handleNewEPC = (newEPC) => {
-    console.log("newEPC: ", newEPC);
+      // Xóa dữ liệu cũ
+      setReadData([]);
+      setIsReading(true);
 
-    setEpcs((prevEpcs) => {
-      const existingIndex = prevEpcs.findIndex((epc) => epc.epc === newEPC.epc);
+      // Gửi lệnh bắt đầu đọc
+      await axios.post("http://localhost:8386/api/nation-rfid/start");
+      notification.success({ message: "Bắt đầu đọc EPC" });
 
-      if (existingIndex >= 0) {
-        // Nếu sản phẩm đã tồn tại, tăng số lượng
-        const updatedEpcs = [...prevEpcs];
-        updatedEpcs[existingIndex].quantity += 1;
-        return updatedEpcs;
+      // Ngắt kết nối WebSocket cũ nếu tồn tại
+      if (socketRef.current) {
+        socketRef.current.close();
       }
 
-      // Nếu EPC mới, thêm vào danh sách
-      return [
-        ...prevEpcs,
-        {
-          ...newEPC,
-          quantity: 1, // Số lượng bắt đầu từ 1
-          product: newEPC.isAssigned ? newEPC.product : null,
-        },
-      ];
-    });
+      // Kết nối WebSocket để nhận dữ liệu EPC
+      const socket = new SockJS("http://localhost:8090/echo");
+      socketRef.current = socket; // Lưu tham chiếu WebSocket
 
-    // Hiển thị thông báo nếu EPC chưa được gán
-    if (!newEPC.isAssigned) {
-      notification.warning({
-        message: "EPC chưa được gán",
-        description: `EPC ${newEPC.epc} chưa được gán.`,
-      });
-    }
-  };
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        handleEPCData(data); // Xử lý dữ liệu quét
+      };
 
-  // Hàm gọi API bắt đầu đọc
-  const handleStart = async () => {
-    try {
-      await axios.post("http://localhost:8386/api/nation-rfid/start");
-      setIsReading(true);
-      notification.success({
-        message: "Đã bắt đầu đọc EPC",
-      });
+      socket.onclose = () => {
+        console.log("WebSocket kết nối đã đóng.");
+      };
     } catch (error) {
       notification.error({
         message: "Lỗi khi bắt đầu đọc",
@@ -82,14 +72,19 @@ const EPCDisplay = () => {
     }
   };
 
-  // Hàm gọi API dừng đọc
-  const handleStop = async () => {
+
+
+  const handleStopReading = async () => {
     try {
       await axios.post("http://localhost:8386/api/nation-rfid/stop");
       setIsReading(false);
-      notification.success({
-        message: "Đã dừng đọc EPC",
-      });
+      notification.success({ message: "Dừng đọc EPC" });
+
+      // Ngắt kết nối WebSocket
+      if (socketRef.current) {
+        socketRef.current.close();
+        socketRef.current = null; // Xóa tham chiếu WebSocket
+      }
     } catch (error) {
       notification.error({
         message: "Lỗi khi dừng đọc",
@@ -98,85 +93,91 @@ const EPCDisplay = () => {
     }
   };
 
-  // Hàm assign EPC
-  const handleAssign = async (epc, productId) => {
-    try {
-      // Gọi API để gán EPC
-      const response = await axios.post(
-        "http://localhost:3003/api/epc/assign",
-        {
-          epc,
-          productId,
-        }
-      );
-      console.log("response.data: ", response.data);
 
-      const assignedProduct = products.find(
-        (product) => product._id === productId
-      );
-
-      console.log("assignedProduct: ", assignedProduct);
-
-      notification.success({
-        message: `EPC ${epc} đã được gán thành công!`,
-      });
-
-      // Cập nhật trạng thái EPC trong danh sách
-      setEpcs((prevEpcs) =>
-        prevEpcs.map((item) =>
-          item.epc === epc
-            ? {
-                ...item,
-                isAssigned: true,
-                product: {
-                  ...assignedProduct,
-                  category: response.data.epc.product.category.name || "N/A",
-                }, // Gắn thông tin sản phẩm vào EPC
-              }
-            : item
-        )
-      );
-    } catch (error) {
+  const handleCompare = () => {
+    if (!invoiceData) {
       notification.error({
-        message: "Lỗi khi gán EPC",
-        description: error.message,
+        message: "Không có thông tin phiếu để so sánh",
       });
+      return;
     }
+
+    const matched = [];
+    const extra = [];
+    const missing = [];
+
+    // So sánh dữ liệu quét được với dữ liệu phiếu
+    readData.forEach((readItem) => {
+      const matchingInvoiceItem = invoiceData.products.find(
+        (invoiceItem) => invoiceItem.barcode === readItem.barcode
+      );
+      if (matchingInvoiceItem) {
+        if (matchingInvoiceItem.quantity === readItem.quantity) {
+          matched.push(readItem);
+        } else {
+          extra.push(readItem);
+        }
+      } else {
+        extra.push(readItem);
+      }
+    });
+
+    invoiceData.products.forEach((invoiceItem) => {
+      const matchingReadItem = readData.find(
+        (readItem) => readItem.barcode === invoiceItem.barcode
+      );
+      if (!matchingReadItem) {
+        missing.push(invoiceItem);
+      }
+    });
+
+    setComparisonResult({ matched, extra, missing });
+    setIsModalVisible(true);
   };
 
-  useEffect(() => {
-    const socket = new SockJS("http://localhost:8090/echo");
+  const handleEPCData = (epcData) => {
+    setReadData((prevData) => {
+      // Tìm xem barcode đã tồn tại hay chưa
+      const existingIndex = prevData.findIndex(
+        (item) => item.barcode === epcData.barcode
+      );
 
-    socket.onopen = () => {
-      console.log("Kết nối thành công với WebSocket server!");
-    };
-
-    socket.onmessage = (event) => {
-      try {
-        const parsedData = JSON.parse(event.data); // Dữ liệu EPC từ server
-        handleNewEPC(parsedData); // Xử lý dữ liệu EPC
-      } catch (error) {
-        console.error("Lỗi khi phân tích dữ liệu từ server:", error);
+      if (existingIndex >= 0) {
+        // Nếu barcode đã tồn tại, cập nhật số lượng
+        const updatedData = [...prevData];
+        updatedData[existingIndex] = {
+          ...updatedData[existingIndex],
+          quantity: updatedData[existingIndex].quantity + 1,
+        };
+        return updatedData;
       }
-    };
 
-    socket.onclose = () => {
-      console.warn("Mất kết nối với WebSocket server.");
-    };
+      // Nếu barcode chưa tồn tại, thêm sản phẩm mới
+      return [
+        ...prevData,
+        {
+          epc: epcData.epc,
+          barcode: epcData.barcode,
+          productName: epcData.product
+            ? epcData.product.name
+            : "Unknown Product",
+          categoryName:
+            epcData.product && epcData.product.category
+              ? epcData.product.category
+              : "Unknown Category",
+          productImage: epcData.product ? epcData.product.image : null,
+          quantity: 1,
+        },
+      ];
+    });
+  };
 
-    setSock(socket); // Lưu WebSocket vào state
 
-    return () => {
-      socket.close(); // Đóng kết nối khi component unmount
-    };
-  }, []);
-
-  // Cột của bảng
   const columns = [
     {
       title: "Hình Ảnh",
-      dataIndex: ["product", "image"],
-      key: "image",
+      dataIndex: "productImage",
+      key: "productImage",
       render: (image) =>
         image ? (
           <img
@@ -190,77 +191,115 @@ const EPCDisplay = () => {
     },
     {
       title: "Tên Sản Phẩm",
-      dataIndex: ["product", "name"],
-      key: "name",
-      render: (text, record) => (record.isAssigned ? text : record.epc),
+      dataIndex: "productName",
+      key: "productName",
     },
     {
       title: "Danh Mục",
-      dataIndex: ["product", "category"],
-      key: "category",
-      render: (category) => category || "N/A",
+      dataIndex: "categoryName",
+      key: "categoryName",
     },
     {
       title: "Số Lượng",
       dataIndex: "quantity",
       key: "quantity",
     },
-    {
-      title: "Trạng thái",
-      dataIndex: "isAssigned",
-      key: "status",
-      render: (isAssigned) => (
-        <Tag color={isAssigned ? "green" : "red"}>
-          {isAssigned ? "Đã gán" : "Chưa gán"}
-        </Tag>
-      ),
-    },
-    {
-      title: "Hành Động",
-      key: "actions",
-      render: (_, record) =>
-        !record.isAssigned && (
-          <Select
-            placeholder="Chọn sản phẩm"
-            style={{ width: "200px" }}
-            onChange={(productId) => handleAssign(record.epc, productId)}
-          >
-            {products.map((product) => (
-              <Option key={product._id} value={product._id}>
-                {product.name}
-              </Option>
-            ))}
-          </Select>
-        ),
-    },
   ];
 
   return (
     <div style={{ padding: "20px" }}>
+      <Row gutter={[16, 16]} style={{ marginBottom: "20px" }}>
+        <Col span={16}>
+          <Input
+            placeholder="Nhập mã phiếu (PO/SO)"
+            value={invoiceCode}
+            onChange={(e) => setInvoiceCode(e.target.value)}
+          />
+        </Col>
+        <Col span={8}>
+          <Button type="primary" onClick={handleCheckInvoice}>
+            Kiểm Tra
+          </Button>
+        </Col>
+      </Row>
+
+      {invoiceData && (
+        <div style={{ marginBottom: "20px" }}>
+          <h3>Thông Tin Phiếu: {invoiceData.transactionCode}</h3>
+          <Table
+            dataSource={invoiceData.products}
+            columns={columns}
+            rowKey="barcode"
+            pagination={false}
+          />
+        </div>
+      )}
+
       <Row justify="space-between" style={{ marginBottom: "20px" }}>
         <Col>
-          <h1>Danh sách EPC</h1>
+          <h3>Danh Sách EPC Đọc Được</h3>
         </Col>
         <Col>
           <Button
             type="primary"
-            onClick={handleStart}
+            onClick={handleStartReading}
             disabled={isReading}
             style={{ marginRight: "10px" }}
           >
             Đọc
           </Button>
-          <Button type="danger" onClick={handleStop} disabled={!isReading}>
+          <Button
+            type="danger"
+            onClick={handleStopReading}
+            disabled={!isReading}
+            style={{ marginRight: "10px" }}
+          >
             Dừng
+          </Button>
+          <Button type="default" onClick={handleCompare}>
+            So Sánh
           </Button>
         </Col>
       </Row>
+
       <Table
-        dataSource={epcs}
+        dataSource={readData}
         columns={columns}
-        rowKey="epc"
-        rowClassName={(record) => (record.isAssigned ? "" : "epc-unassigned")}
+        rowKey="barcode"
+        pagination={false}
       />
+
+      <Modal
+        title="Kết Quả So Sánh"
+        visible={isModalVisible}
+        onCancel={() => setIsModalVisible(false)}
+        footer={null}
+        width={800}
+      >
+        <h3>Sản Phẩm Khớp</h3>
+        <Table
+          dataSource={comparisonResult.matched}
+          columns={columns}
+          rowKey="barcode"
+          pagination={false}
+        />
+
+        <h3>Sản Phẩm Lạc</h3>
+        <Table
+          dataSource={comparisonResult.extra}
+          columns={columns}
+          rowKey="barcode"
+          pagination={false}
+        />
+
+        <h3>Sản Phẩm Thiếu</h3>
+        <Table
+          dataSource={comparisonResult.missing}
+          columns={columns}
+          rowKey="barcode"
+          pagination={false}
+        />
+      </Modal>
     </div>
   );
 };
